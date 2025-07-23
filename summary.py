@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 
 import argparse
+import pprint
+import json
 import os
 import glob
 import csv
@@ -40,25 +42,19 @@ def summary_report(summary_file):
     with open(summary_file) as fh:
         summary = csv.DictReader(fh)
         for row in summary:
-            for key, value in row.items():
-                if "violation" in key or "error" in key:
-                    print("%30s : %20s" % (key, value))
-                if "AREA" in key:
-                    area = float(value)
-                if "flow_status" in key:
-                    status = value           
-
-    print("area %d um^2" % (1e6 * area))
-    if status is not None: # newer OpenLANE has status, older ones don't
-        print("flow status: %s" % status)
+            key = row["Metric"]
+            value = row["Value"]
+            if "violation" in key or "error" in key:
+                print(f"{key:>70} : {value:>20}")
 
 def full_summary_report(summary_file):
     # print short summary of the csv file
     with open(summary_file) as fh:
         summary = csv.DictReader(fh)
         for row in summary:
-            for key, value in row.items():
-                print("%30s : %20s" % (key, value))
+            key = row["Metric"]
+            value = row["Value"]
+            print(f"{key:>70} : {value:>20}")
                     
 def drc_report(drc_file):
     last_drc = None
@@ -81,46 +77,20 @@ def antenna_report(antenna_report):
                 else:
                     print(line.strip(), ": can ignore")
 
+    if violations == 0:
+            print("no antenna violations found")
     if violations > 0:
         print("For more info on antenna reports see https://www.zerotoasiccourse.com/terminology/antenna-report/")
 
-def check_and_sort_regressions(regressions):
-    summaries = {}
-    for run_path in regressions:
-        summary_file = os.path.join(run_path, "reports", "final_summary_report.csv")
-        if not os.path.exists(summary_file):
-            # print(f"run {os.path.basename(run_path)} summary file not found")
-            continue
-        with open(summary_file) as fh:
-            summary = next(csv.DictReader(fh))
-        if summary['flow_status'] != 'Flow_completed':
-            # print(f"run {os.path.basename(run_path)} did not complete : {summary['flow_status']}")
-            continue
-        summaries[run_path] = summary
-    violations = {rp: sum(int(v) for k, v in summary.items() if ('violations' in k or 'error' in k) and int(v) >= 0) for rp, summary in summaries.items()}
-    for rp, n in violations.items():
-        print(f"found regression run {os.path.basename(rp)} with {n} violations")
-    return sorted(
-        violations,
-        key=lambda rp: violations[rp]
-        )
-
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description="OpenLANE summary tool")
-    group = parser.add_mutually_exclusive_group(required=True)
+    parser = argparse.ArgumentParser(description="LibreLane summary tool")
 
-    # either choose the design and interation
-    group.add_argument('--design', help="only run checks on specific design", action='store')
     # or show standard cells
-    group.add_argument('--show-sky130', help='show all standard cells', action='store_const', const=True)
+    parser.add_argument('--show-sky130', help='show all standard cells', action='store_const', const=True)
 
-    # arguments for caravel or regression context
-    parser.add_argument('--regression', help="look for a regression test output dir", action='store_const', const=True)
-    parser.add_argument('--caravel', help='use caravel directory structure instead of standard openlane', action='store_const', const=True)
-
+    parser.add_argument('--runs', help="where the design runs directory is", action='store')
     # optionally choose different name for top module and which run to use (default latest)
-    parser.add_argument('--top', help="name of top module if not same as design", action='store')
     parser.add_argument('--run', help="choose a specific run. If not given use latest. If not arg, show a menu", action='store', default=-1, nargs='?', type=int)
 
     # what to show
@@ -131,67 +101,40 @@ if __name__ == '__main__':
     parser.add_argument('--yosys-report', help='show cell usage after yosys synth', action='store_const', const=True)
     parser.add_argument('--antenna', help='find and list any antenna violations', action='store_const', const=True)
 
-    # some useful things to do
-    parser.add_argument('--copy-final', help='copy final files (gds, lef, powered verilog etc) to the current working directory', action='store_const', const=True)
-
-    # klayout for intermediate files
     parser.add_argument('--floorplan', help='show floorplan', action='store_const', const=True)
     parser.add_argument('--pdn', help='show PDN', action='store_const', const=True)
     parser.add_argument('--global-placement', help='show global placement PDN', action='store_const', const=True)
     parser.add_argument('--detailed-placement', help='show detailed placement', action='store_const', const=True)
     parser.add_argument('--gds', help='show final GDS', action='store_const', const=True)
 
-    # GDS3D for 3d view
-    parser.add_argument('--gds-3d', help='show final GDS in 3D', action='store_const', const=True)
- 
-   
     args = parser.parse_args()
 
-    if not args.top:
-        args.top = args.design 
-
-    if not 'OPENLANE_ROOT' in os.environ:
-        exit("please set OPENLANE_ROOT to where your OpenLane is installed")
     if not 'PDK_ROOT' in os.environ:
         exit("please set PDK_ROOT to where your PDK is installed")
 
-    klayout_def = os.path.join(os.path.dirname(sys.argv[0]), 'klayout_def.xml')
     klayout_gds = os.path.join(os.path.dirname(sys.argv[0]), 'klayout_gds.xml')
-    gds3d_tech  = os.path.join(os.path.dirname(sys.argv[0]), 'sky130.txt')
 
     # if showing off the sky130 cells
     if args.show_sky130:
         path = check_path(os.path.join(os.environ['PDK_ROOT'], "sky130A", "libs.ref", "sky130_fd_sc_hd", "gds", "sky130_fd_sc_hd.gds"))
-        os.system("klayout -l %s %s" % (klayout_gds, path))
+        command = "klayout -l %s %s" % (klayout_gds, path)
+        os.system(command)
+        print(command)
         exit()
 
-    # otherwise need to know where openlane and the designs are
-    openlane_designs = ''
-    if args.caravel:
-        if os.path.exists('openlane'):
-            openlane_designs = 'openlane'
-        else:
-            openlane_designs = '.'
-        run_dir = os.path.join(openlane_designs, args.design, 'runs/*')
-
+    # check explicit argument
+    if args.runs and os.path.exists(args.runs):
+        runs_dir = args.runs
+    # maybe it's in the current working directory
+    elif os.path.exists('runs'):
+        runs_dir = "runs"
     else:
-        openlane_designs = os.path.join(os.environ['OPENLANE_ROOT'], 'designs')
-        if args.regression:
-            run_dir = os.path.join(openlane_designs, args.design, 'config_regression_*')
-        else:
-            run_dir = os.path.join(openlane_designs, args.design, 'runs', '*')
+        exit("couldn't find the runs directory, specify with --runs or change to the directory that contains it")
 
-    print(run_dir)
+    list_of_files = glob.glob(runs_dir + "/*")
 
-    list_of_files = glob.glob(run_dir)
     if len(list_of_files) == 0:
-        exit("couldn't find that design")
-    if args.regression:
-        print(f"found {len(list_of_files)} regression variants, sorting by number of violations")
-        list_of_files = check_and_sort_regressions(list_of_files)
-        if len(list_of_files) == 0:
-            exit("no successful regression runs found")
-        run_path = list_of_files[0]
+        exit(f"no runs found in {runs_dir}")
     else:
         list_of_files.sort(key=openlane_date_sort)
         # what run to show?
@@ -211,18 +154,18 @@ if __name__ == '__main__':
 
         else:
             # use the given run
-            print("using run %d:" % args.run)
+            print(f"using run {args.run}")
             run_path = list_of_files[args.run]
 
-    print(run_path)
+    print(f"using run {run_path}")
 
     # check we can find a lef file, which is needed for viewing def files
-    lef_path = os.path.join(run_path, 'tmp', 'merged.nom.lef')
+    lef_path = check_path(os.path.join(os.environ['PDK_ROOT'],'sky130A/libs.ref/sky130_fd_sc_hd/lef/sky130_fd_sc_hd.lef'))
     def_warning = "any views that use DEF files (floorplan, pdn, fine and detailed placement) will fail"
     if not os.path.exists(lef_path):
         print(f"no LEF file found, {def_warning}")
 
-    klayout_tech = "/volare/sky130/versions/*/sky130A/libs.tech/klayout/tech/"
+    klayout_tech = "/sky130A/libs.tech/klayout/tech/"
     lyt = check_path(os.environ['PDK_ROOT'] + klayout_tech + "sky130A.lyt")
     if not lyt:
         print("sky130A.lyt not found in PDK_ROOT, {def_warning}")
@@ -230,81 +173,71 @@ if __name__ == '__main__':
     lyp = check_path(os.environ['PDK_ROOT'] + klayout_tech + "sky130A.lyp")
     if not lyp:
         print("sky130A.lyp not found in PDK_ROOT, {def_warning}")
-
+ 
     lym = check_path(os.environ['PDK_ROOT'] + klayout_tech + "sky130A.map")
     if not lym:
         print("sky130A.map not found in PDK_ROOT, {def_warning}")
-        
+
+    # TODO fix path
+    open_design = "/home/matt/work/asic-workshop/course/librelane/venv/lib/python3.12/site-packages/librelane/scripts/klayout/open_design.py"
+
     if args.summary:
-        path = check_path(os.path.join(run_path, 'reports', 'metrics.csv'))
+        path = check_path(os.path.join(run_path, 'final', 'metrics.csv'))
         summary_report(path)
 
     if args.full_summary:
-        path = check_path(os.path.join(run_path, 'reports', 'metrics.csv'))
+        path = check_path(os.path.join(run_path, 'final', 'metrics.csv'))
         full_summary_report(path)
 
     if args.drc:
-        path = os.path.join(run_path, 'reports', 'signoff', 'drc.rpt') # don't check path because if DRC is clean, don't get the file
+        path = check_path(os.path.join(run_path, '*-magic-drc/reports/drc_violations.magic.rpt'))
         if os.path.exists(path):
             drc_report(path)
         else:
             print("no DRC file, DRC clean?")
 
     if args.synth:
-        path = check_path(os.path.join(run_path, "tmp", "synthesis", "post_techmap.dot")) # post_techmap is created by https://github.com/efabless/openlane/pull/282
-        print(path)
+        path = check_path(os.path.join(run_path, '*-yosys-synthesis/hierarchy.dot'))
         os.system("xdot %s" % path)
 
     if args.yosys_report:
-        filename = "*synthesis*.stat.*"
-        path = check_path(os.path.join(run_path, "reports", "synthesis", filename))
-        os.system("cat '%s'" % path)
+        
+        path = check_path(os.path.join(run_path, '*-yosys-synthesis/reports/stat.json'))
+        with open(path) as f:
+            data = f.read()
+            json_data = json.loads(data)
+            pprint.pprint(json_data['design'], compact=True)
 
     if args.antenna:
-        filename = "*antenna_violators.rpt"
-        path = check_path(os.path.join(run_path, "reports", "signoff", filename))
+        path = check_path(os.path.join(run_path, '*-openroad-checkantennas/openroad-checkantennas.log'))
         if os.path.exists(path):
             antenna_report(path)
         else:
             print("no antenna file, did the run finish?")
 
-    # these next 4 all need to use a special script to open them as they are def files
-    open_design = "$OPENLANE_ROOT/scripts/klayout/open_design.py"
+    # these next 4 all need to use the open_design script as they are def files
+    # the open_design script reads the arguments from the KLAYOUT_ARGV environment variable    
     if args.floorplan:
-        path = check_path(os.path.join(run_path, "tmp", "floorplan", "4*def"))
-        os.system(f"{open_design} --input-lef {lef_path} --lyt {lyt} --lym {lym} --lyp {lyp} {path}")
+        path = check_path(os.path.join(run_path, '*-openroad-floorplan/*def'))
+        os.environ["KLAYOUT_ARGV"] = f"--input-lef {lef_path} --lyt {lyt} --lym {lym} --lyp {lyp} {path}"
+        os.system(f"klayout -rm {open_design}")
 
     if args.pdn:
-        path = check_path(os.path.join(run_path, "results", "floorplan", "*def"))
-        os.system(f"{open_design} --input-lef {lef_path} --lyt {lyt} --lym {lym} --lyp {lyp} {path}")
+        path = check_path(os.path.join(run_path, '*-openroad-generatepdn/*.def'))
+        os.environ["KLAYOUT_ARGV"] = f"--input-lef {lef_path} --lyt {lyt} --lym {lym} --lyp {lyp} {path}"
+        os.system(f"klayout -rm {open_design}")
 
     if args.global_placement:
-        path = check_path(os.path.join(run_path, "tmp", "placement", "*global.def"))
-        os.system(f"{open_design} --input-lef {lef_path} --lyt {lyt} --lym {lym} --lyp {lyp} {path}")
+        path = check_path(os.path.join(run_path, '*-openroad-globalplacement/*.def'))
+        os.environ["KLAYOUT_ARGV"] = f"--input-lef {lef_path} --lyt {lyt} --lym {lym} --lyp {lyp} {path}"
+        os.system(f"klayout -rm {open_design}")
 
     if args.detailed_placement:
-        path = check_path(os.path.join(run_path, "results", "placement", args.top + ".def"))
-        os.system(f"{open_design} --input-lef {lef_path} --lyt {lyt} --lym {lym} --lyp {lyp} {path}")
+        path = check_path(os.path.join(run_path, '*-openroad-detailedplacement/*.def'))
+        os.environ["KLAYOUT_ARGV"] = f"--input-lef {lef_path} --lyt {lyt} --lym {lym} --lyp {lyp} {path}"
+        os.system(f"klayout -rm {open_design}")
 
-    # gds doesn't need a lef
     if args.gds:
-        path = check_path(os.path.join(run_path, "results", "signoff", args.top + ".gds"))
+        path = check_path(os.path.join(run_path, 'final/gds/*.gds'))
         os.system("klayout -l %s %s" % (klayout_gds, path))
 
-    if args.copy_final:
-        path = check_path(os.path.join(run_path, "results", "final"))
-        copytree(path, "final")
-
-        # also take the pdk and openlane versions
-        path = check_path(os.path.join(run_path, "OPENLANE_VERSION"))
-        copyfile(path, os.path.join("final", "OPENLANE_VERSION"))
-        path = check_path(os.path.join(run_path, "PDK_SOURCES"))
-        copyfile(path, os.path.join("final", "PDK_SOURCES"))
-
-    if args.gds_3d:
-        if not is_tool('GDS3D'):
-            print("ERROR: Couldn't find GDS3D.")
-            exit("Please install GDS3D from https://github.com/trilomix/GDS3D")
-        path = check_path(os.path.join(run_path, "results", "final", "gds", args.top + ".gds"))
-        os.system("GDS3D -p %s -i %s" % (gds3d_tech, path))
-        
