@@ -112,6 +112,13 @@ if __name__ == '__main__':
     if not 'PDK_ROOT' in os.environ:
         exit("please set PDK_ROOT to where your PDK is installed")
 
+    # open_design.py is needed for opening lef and def files with Klayout
+    try:
+        import librelane
+        open_design = os.path.join(librelane.__path__[0], "scripts/klayout/open_design.py")
+    except ImportError as e:
+        print("open_design.py script could not be found, is LibreLane installed?")
+
     klayout_gds = os.path.join(os.path.dirname(sys.argv[0]), 'klayout_gds.xml')
 
     # if showing off the sky130 cells
@@ -178,8 +185,6 @@ if __name__ == '__main__':
     if not lym:
         print("sky130A.map not found in PDK_ROOT, {def_warning}")
 
-    # TODO fix path
-    open_design = "/home/matt/work/asic-workshop/course/librelane/venv/lib/python3.12/site-packages/librelane/scripts/klayout/open_design.py"
 
     if args.summary:
         path = check_path(os.path.join(run_path, 'final', 'metrics.csv'))
