@@ -1,26 +1,26 @@
-# OpenLane summary
+# LibreLane summary
 
-After the [OpenLane ASIC flow](https://github.com/efabless/openlane) has finished, you have a lot of files in the run directory.
+After the [LibreLane ASIC flow](https://github.com/librelane/librelane) has finished, you have a lot of files in the run directory.
 This tool allows you to explore the design and get various statistics from the final_report_summary.csv file.
 
 Video demo: https://www.youtube.com/watch?v=2wBbYU_8dZI
 
-Article: https://www.zerotoasiccourse.com/post/openlane_output_files/
+Article: https://www.zerotoasiccourse.com/post/librelane_output_files/
 
 # Compatibility
 
-These tools are currently working for MPW9 tagged OpenLane. Check other branches for other versions.
+These tools are currently working for LibreLane in 2025. Check other branches for other versions.
 
 # Setup
 
 * Clone the repo somewhere and add the path to your $PATH
-* Ensure OPENLANE_ROOT and PDK_ROOT are set correctly
+* Ensure PDK_ROOT are set correctly
 
 ## Example
 
-If you cloned the repo to /home/matt/openlane_summary and you are using bash as your shell, add this line to your ~/.bashrc:
+If you cloned the repo to /home/matt/librelane_summary and you are using bash as your shell, add this line to your ~/.bashrc:
 
-    export PATH=$PATH:/home/matt/openlane_summary
+    export PATH=$PATH:/home/matt/librelane_summary
 
 This adds the repository path as one of the places that executables can be found. Then anywhere else in the filesystem you can run the program by typing on the commandline:
 
@@ -29,7 +29,7 @@ This adds the repository path as one of the places that executables can be found
 # Requirements
 
 * KLayout for most of the views
-* GDS3D for 3D GDS view: https://github.com/trilomix/GDS3D
+* LibreLane for the open_design.py script used by KLayout
 
 # Show all skywater cells with KLayout
 
@@ -44,14 +44,12 @@ This adds the repository path as one of the places that executables can be found
 
 # Examples
 
+Change the directory where you ran LibreLane, so that the `./runs` directory is in your current working directory.
+
 Show drc, violations summary and cell usage of latest run:
 
-    summary.py --design led_blinky --drc --summary --yosys
+    summary.py --drc --summary --yosys
 
 Show PDN of explict run:
 
-    summary.py --design led_blinky --pdn --run 2
-
-Show 3D GDS view of user_project_wrapper part of Caravel:
-
-    summary.py --design user_project_wrapper --caravel --gds-3d
+    summary.py --pdn --run 2
