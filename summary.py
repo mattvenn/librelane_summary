@@ -100,6 +100,7 @@ if __name__ == '__main__':
     parser.add_argument('--synth', help='show post techmap synth', action='store_const', const=True)
     parser.add_argument('--yosys-report', help='show cell usage after yosys synth', action='store_const', const=True)
     parser.add_argument('--antenna', help='find and list any antenna violations', action='store_const', const=True)
+    parser.add_argument('--timing', help='timing summary report', action='store_const', const=True)
 
     parser.add_argument('--floorplan', help='show floorplan', action='store_const', const=True)
     parser.add_argument('--pdn', help='show PDN', action='store_const', const=True)
@@ -206,7 +207,6 @@ if __name__ == '__main__':
         os.system("xdot %s" % path)
 
     if args.yosys_report:
-        
         path = check_path(os.path.join(run_path, '*-yosys-synthesis/reports/stat.json'))
         with open(path) as f:
             data = f.read()
@@ -220,6 +220,14 @@ if __name__ == '__main__':
         else:
             print("no antenna file, did the run finish?")
 
+    if args.timing:
+        path = check_path(os.path.join(run_path, '*-openroad-stapostpnr/summary.rpt'))
+        if os.path.exists(path):
+            # just print it
+            with open(path) as fh:
+                print(fh.read())
+        else:
+            print("no STA summary report, did the run finish?")
     # these next 4 all need to use the open_design script as they are def files
     # the open_design script reads the arguments from the KLAYOUT_ARGV environment variable    
     if args.floorplan:
